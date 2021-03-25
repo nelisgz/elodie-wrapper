@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+function date_now {
+  date "+%Y-%m-%d %H:%M:%S"
+}
+
+function date_now_safe {
+  date "+%Y%m%d-%H%M%S"
+}
+
+WHEREAMI=`realpath $0`
+SCRIPTPATH=`dirname $WHEREAMI`
+ALBUM_TO_SORT=$1
+
+[ -z "$ALBUM_TO_SORT" ] && { echo "No album to sort given"; exit 1; }
+
+LOGFILE=/tmp/elodie_wrapper_log_$ALBUM_TO_SORT-`date_now_safe`.log
+
+source $SCRIPTPATH/$ALBUM_TO_SORT.env
+source $SCRIPTPATH/smtp.env
+
+echo -e "[wrapper][`date_now`] Firing up the album sorting process" &> $LOGFILE
+
+SUCCESS=true
+
+(cd ../elodie/; ./elodie.py import --destination="$ALBUM_DESTINATION" $ALBUM_SOURCE &>> $LOGFILE || SUCCESS=false)
+
+# send mail on failure
+if [[ "$SUCCESS" == "false" ]]; then
+	cat $LOGFILE | s-nail -s "Album sorting FAILED: $ALBUM_TO_SORT" \
+		-S smtp-use-starttls \
+		-S smtp-auth=login \
+		-S smtp=smtp://$NOTIFICATION_SMTP_URL \
+		-S from="$NOTIFICATION_MAIL_FROM" \
+		-S smtp-auth-user=$NOTIFICATION_SMTP_USER \
+		-S smtp-auth-password=$NOTIFICATION_SMTP_PASSWORD \
+		$MAILTO
+else
+	# send mail on success
+	cat $LOGFILE | s-nail -s "Album sorting OK: $ALBUM_TO_SORT" \
+		-S smtp-use-starttls \
+		-S smtp-auth=login \
+		-S smtp=smtp://$NOTIFICATION_SMTP_URL \
+		-S from="$NOTIFICATION_MAIL_FROM" \
+		-S smtp-auth-user=$NOTIFICATION_SMTP_USER \
+		-S smtp-auth-password=$NOTIFICATION_SMTP_PASSWORD \
+		$MAILTO
+fi
+
+rm $LOGFILE
